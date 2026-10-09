@@ -13,14 +13,4 @@ trackForm.addEventListener('submit', (event) => {
   if (!trackForm.reportValidity()) return;
   trackMessage.textContent = 'Demo only: complaint tracking needs a connected database.';
 });
-const themeToggle = document.getElementById("themeToggle");
 
-themeToggle.addEventListener("click", function () {
-    document.body.classList.toggle("dark-theme");
-
-    if (document.body.classList.contains("dark-theme")) {
-        themeToggle.textContent = "☀️ Light Mode";
-    } else {
-        themeToggle.textContent = "🌙 Dark Mode";
-    }
-});
