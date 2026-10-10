@@ -1,4 +1,12 @@
-// Front-end demo only: no data is sent to a server or saved.
+const SUPABASE_URL = "https://fuglhqavojfwxggsesam.supabase.co";
+
+const SUPABASE_ANON_KEY =
+    "sb_publishable_Wm5Ff2M5oceS1fOZmoArbQ_St1gLjWE";
+
+const supabaseClient = supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+);// Front-end demo only: no data is sent to a server or saved.
 const complaintForm = document.querySelector('#complaint-form');
 const formMessage = document.querySelector('#form-message');
 complaintForm.addEventListener('submit', (event) => {
