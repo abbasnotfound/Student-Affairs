@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 ```javascript
 "use strict";
 
@@ -67,35 +66,6 @@ function generateTrackingCode() {
         .toUpperCase();
 
     return "SA-" + randomPart;
-=======
-// Front-end demo only: records stay in this browser and are not sent to a server.
-const STORAGE_KEY = 'studentAffairsDemoComplaints';
-const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
-function readComplaints() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    return Array.isArray(saved) ? saved : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveComplaints(complaints) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(complaints));
-}
-
-function generateTrackingCode(existingCodes) {
-  let code;
-  do {
-    let suffix = '';
-    for (let i = 0; i < 6; i++) {
-      suffix += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
-    }
-    code = `SA-${suffix}`;
-  } while (existingCodes.has(code));
-  return code;
->>>>>>> 886083353aed59668907548f3ddb83b4df243b05
 }
 
 const complaintForm = document.querySelector('#complaint-form');
@@ -505,7 +475,7 @@ if (trackForm && trackMessage) {
     );
 }
 ```
-=======
+
   const complaints = readComplaints();
   const existingCodes = new Set(complaints.map(item => item.code));
   const code = generateTrackingCode(existingCodes);
@@ -523,7 +493,7 @@ if (trackForm && trackMessage) {
   } catch {
     formMessage.textContent = 'Could not save the demo tracking code in this browser. Check browser storage settings and try again.';
   }
-});
+;
 
 const trackForm = document.querySelector('#track-form');
 const trackMessage = document.querySelector('#track-message');
@@ -550,3 +520,7 @@ trackForm.addEventListener('submit', (event) => {
 
   trackMessage.textContent = `Tracking code: ${complaint.code} — Status: ${complaint.status}. This is demo status only; no college system has received the complaint.`;
 });
+<<<<<<< HEAD
+=======
+ 
+>>>>>>> 4fb78d732f7290346b9c0052faf14816a512a11b
