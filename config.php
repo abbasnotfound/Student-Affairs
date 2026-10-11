@@ -20,9 +20,9 @@ define('DB_NAME', getenv('DB_NAME') ?: 'student_affairs');
 
 // =====================================================================
 // SENDER EMAIL & SMTP CONFIGURATION
-// >>> PUT YOUR SENDER EMAIL ADDRESS HERE <<<
+// >>> studentaffairsccs@gmail.com <<<
 // =====================================================================
-define('MAIL_FROM_EMAIL', 'studentaffairs@college.edu');  // Set your sender email address here
+define('MAIL_FROM_EMAIL', 'studentaffairsccs@gmail.com');  // Set your sender email address here
 define('MAIL_FROM_NAME',  'Student Affairs Portal');      // Set your sender display name here
 
 // To send REAL live emails to inboxes (e.g. via Gmail, Outlook, or SMTP server):
@@ -30,7 +30,7 @@ define('SMTP_ENABLED',    false);                         // Change to true to e
 define('SMTP_HOST',       'smtp.gmail.com');              // SMTP server (e.g. smtp.gmail.com)
 define('SMTP_PORT',       587);                           // SMTP port: 587 (TLS) or 465 (SSL)
 define('SMTP_ENCRYPTION', 'tls');                         // 'tls' or 'ssl'
-define('SMTP_USER',       'your-email@gmail.com');        // Your email address
+define('SMTP_USER',       'studentaffairsccs@gmail.com');        // Your email address
 define('SMTP_PASS',       'your-16-char-app-password');   // For Gmail: 16-character Google App Password
 
 /**
@@ -427,22 +427,29 @@ function send_tracking_code_email(
 </html>
 HTML;
 
-    $fromHost = !empty($_SERVER['SERVER_NAME']) && $_SERVER['SERVER_NAME'] !== 'localhost' ? $_SERVER['SERVER_NAME'] : 'college.edu';
-    $fromEmail = "no-reply@{$fromHost}";
+    $fromEmail = defined('MAIL_FROM_EMAIL') ? MAIL_FROM_EMAIL : ('no-reply@' . ($_SERVER['SERVER_NAME'] ?? 'college.edu'));
+    $fromName = defined('MAIL_FROM_NAME') ? MAIL_FROM_NAME : 'Student Affairs Portal';
 
     $headers = [
         'MIME-Version: 1.0',
         'Content-Type: text/html; charset=UTF-8',
-        "From: Student Affairs Portal <{$fromEmail}>",
+        "From: {$fromName} <{$fromEmail}>",
         "Reply-To: {$fromEmail}",
         'X-Mailer: PHP/' . phpversion()
     ];
 
     $mailSuccess = false;
-    try {
-        $mailSuccess = @mail($recipientEmail, $emailSubject, $htmlBody, implode("\r\n", $headers));
-    } catch (\Throwable $t) {
-        $mailSuccess = false;
+    $methodUsed = 'mail()';
+
+    if (defined('SMTP_ENABLED') && SMTP_ENABLED === true) {
+        $mailSuccess = send_smtp_socket_email($recipientEmail, $emailSubject, $htmlBody);
+        $methodUsed = 'SMTP (' . SMTP_HOST . ')';
+    } else {
+        try {
+            $mailSuccess = @mail($recipientEmail, $emailSubject, $htmlBody, implode("\r\n", $headers));
+        } catch (\Throwable $t) {
+            $mailSuccess = false;
+        }
     }
 
     // Write to local logs/emails.log so local testing can be verified without external SMTP
@@ -450,13 +457,16 @@ HTML;
     if (!is_dir($logDir)) {
         @mkdir($logDir, 0755, true);
     }
+    $deliveryStatus = $mailSuccess ? "SENT via {$methodUsed}" : "LOGGED (Local XAMPP / SMTP Disabled)";
     $logEntry = sprintf(
-        "[%s] To: %s | Code: %s | Subject: %s | Delivered: %s\n",
+        "[%s] From: %s <%s> | To: %s | Code: %s | Subject: %s | Status: %s\n",
         date('Y-m-d H:i:s'),
+        $fromName,
+        $fromEmail,
         $recipientEmail,
         $trackingCode,
         $complaintSubject,
-        $mailSuccess ? 'SENT (mail)' : 'LOGGED (Local XAMPP)'
+        $deliveryStatus
     );
     @file_put_contents($logDir . '/emails.log', $logEntry, FILE_APPEND);
 
@@ -480,4 +490,104 @@ HTML;
     }
 
     return true;
+}
+
+/**
+ * Direct lightweight SMTP mailer for Gmail, Outlook, or standard SMTP relays.
+ */
+function send_smtp_socket_email(string $to, string $subject, string $htmlBody): bool {
+    $host = SMTP_HOST;
+    $port = (int)SMTP_PORT;
+    $user = SMTP_USER;
+    $pass = SMTP_PASS;
+    $encryption = strtolower(SMTP_ENCRYPTION);
+
+    $remoteHost = ($encryption === 'ssl') ? "ssl://{$host}" : "tcp://{$host}";
+    $socket = @stream_socket_client("{$remoteHost}:{$port}", $errno, $errstr, 15, STREAM_CLIENT_CONNECT);
+    if (!$socket) {
+        error_log("SMTP connection failed: {$errstr} ({$errno})");
+        return false;
+    }
+
+    $read = function() use ($socket): string {
+        $data = '';
+        while (!feof($socket)) {
+            $line = fgets($socket, 515);
+            if ($line === false) break;
+            $data .= $line;
+            if (isset($line[3]) && $line[3] === ' ') break;
+        }
+        return $data;
+    };
+
+    $write = function(string $cmd) use ($socket): void {
+        fputs($socket, $cmd . "\r\n");
+    };
+
+    $response = $read();
+    if (!str_starts_with($response, '220')) {
+        fclose($socket);
+        return false;
+    }
+
+    $clientName = gethostname() ?: 'localhost';
+    $write("EHLO {$clientName}");
+    $response = $read();
+
+    if ($encryption === 'tls') {
+        $write("STARTTLS");
+        $response = $read();
+        if (!str_starts_with($response, '220')) {
+            fclose($socket);
+            return false;
+        }
+        if (!@stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+            fclose($socket);
+            return false;
+        }
+        $write("EHLO {$clientName}");
+        $response = $read();
+    }
+
+    if (!empty($user) && !empty($pass)) {
+        $write("AUTH LOGIN");
+        $response = $read();
+        $write(base64_encode($user));
+        $response = $read();
+        $write(base64_encode($pass));
+        $response = $read();
+        if (!str_starts_with($response, '235')) {
+            error_log("SMTP authentication failed: {$response}");
+            fclose($socket);
+            return false;
+        }
+    }
+
+    $fromEmail = MAIL_FROM_EMAIL ?: $user;
+    $write("MAIL FROM:<{$fromEmail}>");
+    $read();
+    $write("RCPT TO:<{$to}>");
+    $read();
+    $write("DATA");
+    $read();
+
+    $headers = [
+        "From: " . MAIL_FROM_NAME . " <{$fromEmail}>",
+        "To: <{$to}>",
+        "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=",
+        "MIME-Version: 1.0",
+        "Content-Type: text/html; charset=UTF-8",
+        "Content-Transfer-Encoding: 8bit",
+        "Date: " . date('r'),
+        "Message-ID: <" . bin2hex(random_bytes(16)) . "@{$host}>"
+    ];
+
+    $emailData = implode("\r\n", $headers) . "\r\n\r\n" . $htmlBody . "\r\n.";
+    $write($emailData);
+    $response = $read();
+
+    $write("QUIT");
+    fclose($socket);
+
+    return str_starts_with($response, '250');
 }
