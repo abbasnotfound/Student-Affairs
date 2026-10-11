@@ -1,4 +1,4 @@
-
+```javascript
 "use strict";
 
 // ========================================
@@ -28,6 +28,7 @@ function showMessage(element, message, type = "info") {
     element.dataset.type = type;
 }
 
+
 // Display multiple lines of complaint details safely.
 function showDetails(element, details) {
     element.replaceChildren();
@@ -37,18 +38,30 @@ function showDetails(element, details) {
         const heading = document.createElement("strong");
 
         heading.textContent = label + ": ";
-        line.append(heading, document.createTextNode(String(value ?? "—")));
+
+        line.append(
+            heading,
+            document.createTextNode(String(value ?? "—"))
+        );
+
         element.appendChild(line);
     });
 }
 
+
 // Generate a random tracking code.
+// Format:
+// SA- + 16 hexadecimal characters
+// Total length = 19 characters.
 function generateTrackingCode() {
     const bytes = new Uint8Array(8);
+
     crypto.getRandomValues(bytes);
 
     const randomPart = Array.from(bytes)
-        .map(byte => byte.toString(16).padStart(2, "0"))
+        .map(byte =>
+            byte.toString(16).padStart(2, "0")
+        )
         .join("")
         .toUpperCase();
 
@@ -60,146 +73,231 @@ function generateTrackingCode() {
 // COMPLAINT FORM
 // ========================================
 
-const complaintForm = document.querySelector("#complaint-form");
-const formMessage = document.querySelector("#form-message");
+const complaintForm =
+    document.querySelector("#complaint-form");
+
+const formMessage =
+    document.querySelector("#form-message");
+
 
 if (complaintForm && formMessage) {
-    complaintForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
 
-        if (!complaintForm.reportValidity()) {
-            return;
-        }
+    complaintForm.addEventListener(
+        "submit",
+        async (event) => {
 
-        const submitButton = complaintForm.querySelector(
-            'button[type="submit"]'
-        );
+            event.preventDefault();
 
-        const formData = new FormData(complaintForm);
-
-        const studentName = String(formData.get("name") ?? "").trim();
-
-        // Your HTML field is named "studentId", but its label is "Class".
-        // Keep the existing database schema compatible.
-        const className = String(
-            formData.get("studentId") ?? ""
-        ).trim();
-
-        const studentId = className;
-
-        const section = String(
-            formData.get("section") ?? ""
-        ).trim();
-
-        const email = String(
-            formData.get("email") ?? ""
-        ).trim();
-
-        const category = String(
-            formData.get("category") ?? ""
-        ).trim();
-
-        const subject = String(
-            formData.get("subject") ?? ""
-        ).trim();
-
-        const description = String(
-            formData.get("description") ?? ""
-        ).trim();
-
-        const trackingCode = generateTrackingCode();
-
-        showMessage(
-            formMessage,
-            "Submitting your complaint...",
-            "info"
-        );
-
-        if (submitButton) {
-            submitButton.disabled = true;
-            submitButton.textContent = "Submitting...";
-        }
-
-        try {
-            const { error } = await supabaseClient
-                .from("complaints")
-                .insert({
-                    tracking_code: trackingCode,
-                    student_name: studentName,
-                    student_id: studentId,
-                    class_name: className,
-                    section: section || null,
-                    email: email,
-                    category: category,
-                    subject: subject,
-                    description: description,
-                    status: "Pending"
-                });
-
-            if (error) {
-                throw error;
+            if (!complaintForm.reportValidity()) {
+                return;
             }
 
-            formMessage.replaceChildren();
 
-            const successHeading = document.createElement("strong");
-            successHeading.textContent =
-                "Complaint submitted successfully!";
+            const submitButton =
+                complaintForm.querySelector(
+                    'button[type="submit"]'
+                );
 
-            const explanation = document.createElement("p");
-            explanation.textContent =
-                "Save your tracking code to check the status later:";
 
-            const code = document.createElement("strong");
-            code.textContent = trackingCode;
+            const formData =
+                new FormData(complaintForm);
 
-            const copyButton = document.createElement("button");
-            copyButton.type = "button";
-            copyButton.className = "btn secondary";
-            copyButton.textContent = "Copy tracking code";
 
-            copyButton.addEventListener("click", async () => {
-                try {
-                    await navigator.clipboard.writeText(trackingCode);
-                    copyButton.textContent = "Code copied!";
-                } catch {
-                    showMessage(
-                        formMessage,
-                        "Please copy your tracking code manually: " +
-                        trackingCode,
-                        "info"
-                    );
-                }
-            });
+            const studentName =
+                String(
+                    formData.get("name") ?? ""
+                ).trim();
 
-            formMessage.append(
-                successHeading,
-                explanation,
-                code,
-                document.createElement("br"),
-                copyButton
-            );
 
-            complaintForm.reset();
+            // Your HTML field is named "studentId",
+            // but its label is "Class".
+            // Keep the existing database schema compatible.
+            const className =
+                String(
+                    formData.get("studentId") ?? ""
+                ).trim();
 
-        } catch (error) {
-            console.error("Complaint submission error:", error);
+
+            const studentId = className;
+
+
+            const section =
+                String(
+                    formData.get("section") ?? ""
+                ).trim();
+
+
+            const email =
+                String(
+                    formData.get("email") ?? ""
+                ).trim();
+
+
+            const category =
+                String(
+                    formData.get("category") ?? ""
+                ).trim();
+
+
+            const subject =
+                String(
+                    formData.get("subject") ?? ""
+                ).trim();
+
+
+            const description =
+                String(
+                    formData.get("description") ?? ""
+                ).trim();
+
+
+            const trackingCode =
+                generateTrackingCode();
+
 
             showMessage(
                 formMessage,
-                "Your complaint could not be submitted. Please try again. " +
-                "If the problem continues, check your database settings.",
-                "error"
+                "Submitting your complaint...",
+                "info"
             );
 
-        } finally {
+
             if (submitButton) {
-                submitButton.disabled = false;
-                submitButton.innerHTML =
-                    'Submit complaint <b>→</b>';
+                submitButton.disabled = true;
+                submitButton.textContent =
+                    "Submitting...";
+            }
+
+
+            try {
+
+                const { error } =
+                    await supabaseClient
+                        .from("complaints")
+                        .insert({
+                            tracking_code: trackingCode,
+                            student_name: studentName,
+                            student_id: studentId,
+                            class_name: className,
+                            section: section || null,
+                            email: email,
+                            category: category,
+                            subject: subject,
+                            description: description,
+                            status: "Pending"
+                        });
+
+
+                if (error) {
+                    throw error;
+                }
+
+
+                formMessage.replaceChildren();
+
+
+                const successHeading =
+                    document.createElement("strong");
+
+                successHeading.textContent =
+                    "Complaint submitted successfully!";
+
+
+                const explanation =
+                    document.createElement("p");
+
+                explanation.textContent =
+                    "Save your tracking code to check the status later:";
+
+
+                const code =
+                    document.createElement("strong");
+
+                code.className =
+                    "tracking-code-display";
+
+                code.textContent =
+                    trackingCode;
+
+
+                const copyButton =
+                    document.createElement("button");
+
+                copyButton.type = "button";
+
+                copyButton.className =
+                    "btn secondary";
+
+                copyButton.textContent =
+                    "Copy tracking code";
+
+
+                copyButton.addEventListener(
+                    "click",
+                    async () => {
+
+                        try {
+
+                            await navigator.clipboard.writeText(
+                                trackingCode
+                            );
+
+                            copyButton.textContent =
+                                "Code copied!";
+
+                        } catch {
+
+                            showMessage(
+                                formMessage,
+                                "Please copy your tracking code manually: " +
+                                trackingCode,
+                                "info"
+                            );
+
+                        }
+                    }
+                );
+
+
+                formMessage.append(
+                    successHeading,
+                    explanation,
+                    code,
+                    document.createElement("br"),
+                    copyButton
+                );
+
+
+                complaintForm.reset();
+
+            } catch (error) {
+
+                console.error(
+                    "Complaint submission error:",
+                    error
+                );
+
+
+                showMessage(
+                    formMessage,
+                    "Your complaint could not be submitted. Please try again. " +
+                    "If the problem continues, check your database settings.",
+                    "error"
+                );
+
+            } finally {
+
+                if (submitButton) {
+
+                    submitButton.disabled =
+                        false;
+
+                    submitButton.innerHTML =
+                        'Submit complaint <b>→</b>';
+                }
             }
         }
-    });
+    );
 }
 
 
@@ -207,94 +305,170 @@ if (complaintForm && formMessage) {
 // TRACK COMPLAINT
 // ========================================
 
-const trackForm = document.querySelector("#track-form");
-const trackMessage = document.querySelector("#track-message");
+const trackForm =
+    document.querySelector("#track-form");
+
+const trackMessage =
+    document.querySelector("#track-message");
+
 
 if (trackForm && trackMessage) {
-    trackForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
 
-        if (!trackForm.reportValidity()) {
-            return;
-        }
+    trackForm.addEventListener(
+        "submit",
+        async (event) => {
 
-        const trackButton = trackForm.querySelector(
-            'button[type="submit"]'
-        );
+            event.preventDefault();
 
-        const formData = new FormData(trackForm);
 
-        const code = String(
-            formData.get("code") ?? ""
-        ).trim().toUpperCase();
-
-        showMessage(
-            trackMessage,
-            "Checking your complaint...",
-            "info"
-        );
-
-        if (trackButton) {
-            trackButton.disabled = true;
-            trackButton.textContent = "Checking...";
-        }
-
-        try {
-            // Uses the restricted tracking function created in Step 8.
-            const { data, error } = await supabaseClient.rpc(
-                "track_complaint",
-                { code: code }
-            );
-
-            if (error) {
-                throw error;
-            }
-
-            if (!Array.isArray(data) || data.length === 0) {
-                showMessage(
-                    trackMessage,
-                    "No complaint was found with that tracking code.",
-                    "error"
-                );
+            if (!trackForm.reportValidity()) {
                 return;
             }
 
-            const complaint = data[0];
 
-            showDetails(trackMessage, [
-                ["Tracking ID", complaint.tracking_code],
-                ["Category", complaint.category],
-                ["Subject", complaint.subject],
-                ["Status", complaint.status],
-                [
-                    "Submitted",
-                    complaint.created_at
-                        ? new Date(complaint.created_at).toLocaleString()
-                        : "Not available"
-                ],
-                [
-                    "Last updated",
-                    complaint.updated_at
-                        ? new Date(complaint.updated_at).toLocaleString()
-                        : "Not available"
-                ]
-            ]);
+            const trackButton =
+                trackForm.querySelector(
+                    'button[type="submit"]'
+                );
 
-        } catch (error) {
-            console.error("Complaint tracking error:", error);
+
+            const formData =
+                new FormData(trackForm);
+
+
+            // Accept the complete 19-character tracking code.
+            const code =
+                String(
+                    formData.get("code") ?? ""
+                )
+                .trim()
+                .toUpperCase();
+
 
             showMessage(
                 trackMessage,
-                "Unable to check the complaint right now. Please verify " +
-                "that the tracking function and database permissions are configured.",
-                "error"
+                "Checking your complaint...",
+                "info"
             );
 
-        } finally {
+
             if (trackButton) {
-                trackButton.disabled = false;
-                trackButton.innerHTML = "Check status <b>→</b>";
+
+                trackButton.disabled =
+                    true;
+
+                trackButton.textContent =
+                    "Checking...";
+            }
+
+
+            try {
+
+                // Uses the restricted tracking function
+                // created in Supabase.
+                const { data, error } =
+                    await supabaseClient.rpc(
+                        "track_complaint",
+                        {
+                            code: code
+                        }
+                    );
+
+
+                if (error) {
+                    throw error;
+                }
+
+
+                if (
+                    !Array.isArray(data) ||
+                    data.length === 0
+                ) {
+
+                    showMessage(
+                        trackMessage,
+                        "No complaint was found with that tracking code.",
+                        "error"
+                    );
+
+                    return;
+                }
+
+
+                const complaint =
+                    data[0];
+
+
+                showDetails(
+                    trackMessage,
+                    [
+                        [
+                            "Tracking ID",
+                            complaint.tracking_code
+                        ],
+
+                        [
+                            "Category",
+                            complaint.category
+                        ],
+
+                        [
+                            "Subject",
+                            complaint.subject
+                        ],
+
+                        [
+                            "Status",
+                            complaint.status
+                        ],
+
+                        [
+                            "Submitted",
+                            complaint.created_at
+                                ? new Date(
+                                    complaint.created_at
+                                ).toLocaleString()
+                                : "Not available"
+                        ],
+
+                        [
+                            "Last updated",
+                            complaint.updated_at
+                                ? new Date(
+                                    complaint.updated_at
+                                ).toLocaleString()
+                                : "Not available"
+                        ]
+                    ]
+                );
+
+            } catch (error) {
+
+                console.error(
+                    "Complaint tracking error:",
+                    error
+                );
+
+
+                showMessage(
+                    trackMessage,
+                    "Unable to check the complaint right now. Please verify " +
+                    "that the tracking function and database permissions are configured.",
+                    "error"
+                );
+
+            } finally {
+
+                if (trackButton) {
+
+                    trackButton.disabled =
+                        false;
+
+                    trackButton.innerHTML =
+                        "Check status <b>→</b>";
+                }
             }
         }
-    });
+    );
 }
+```
