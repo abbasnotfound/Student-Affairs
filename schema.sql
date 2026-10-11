@@ -69,3 +69,20 @@ CREATE TABLE IF NOT EXISTS `complaint_logs` (
     ON DELETE SET NULL
     ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- 4. Email Notification Logs
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `email_logs` (
+  `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `complaint_id` INT UNSIGNED DEFAULT NULL,
+  `recipient_email` VARCHAR(254) NOT NULL,
+  `tracking_code` VARCHAR(32) NOT NULL,
+  `subject` VARCHAR(255) NOT NULL,
+  `body_preview` TEXT NOT NULL,
+  `delivery_status` ENUM('Sent', 'Logged', 'Failed') NOT NULL DEFAULT 'Sent',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_email_code` (`tracking_code`),
+  INDEX `idx_recipient` (`recipient_email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

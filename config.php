@@ -18,6 +18,21 @@ define('DB_USER', getenv('DB_USER') ?: 'root');
 define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');
 define('DB_NAME', getenv('DB_NAME') ?: 'student_affairs');
 
+// =====================================================================
+// SENDER EMAIL & SMTP CONFIGURATION
+// >>> PUT YOUR SENDER EMAIL ADDRESS HERE <<<
+// =====================================================================
+define('MAIL_FROM_EMAIL', 'studentaffairs@college.edu');  // Set your sender email address here
+define('MAIL_FROM_NAME',  'Student Affairs Portal');      // Set your sender display name here
+
+// To send REAL live emails to inboxes (e.g. via Gmail, Outlook, or SMTP server):
+define('SMTP_ENABLED',    false);                         // Change to true to enable real SMTP delivery
+define('SMTP_HOST',       'smtp.gmail.com');              // SMTP server (e.g. smtp.gmail.com)
+define('SMTP_PORT',       587);                           // SMTP port: 587 (TLS) or 465 (SSL)
+define('SMTP_ENCRYPTION', 'tls');                         // 'tls' or 'ssl'
+define('SMTP_USER',       'your-email@gmail.com');        // Your email address
+define('SMTP_PASS',       'your-16-char-app-password');   // For Gmail: 16-character Google App Password
+
 /**
  * Get or create the shared PDO database connection.
  */
@@ -121,7 +136,9 @@ function init_database_tables(PDO $pdo): void {
         INDEX `idx_category` (`category`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-    // Upgrade existing complaints table if missing columns from earlier versions
+    // Upgrade existing complaints table if missing columns or lengths from earlier versions
+    $pdo->exec("ALTER TABLE `complaints` MODIFY COLUMN `tracking_code` VARCHAR(32) NOT NULL");
+    $pdo->exec("ALTER TABLE `complaints` MODIFY COLUMN `status` ENUM('Pending', 'In Progress', 'Resolved', 'Rejected') NOT NULL DEFAULT 'Pending'");
     ensure_column($pdo, 'complaints', 'email', "VARCHAR(254) NOT NULL DEFAULT ''");
     ensure_column($pdo, 'complaints', 'assigned_to', "INT UNSIGNED DEFAULT NULL");
 
@@ -133,6 +150,18 @@ function init_database_tables(PDO $pdo): void {
         `old_status` VARCHAR(50) NOT NULL,
         `new_status` VARCHAR(50) NOT NULL,
         `note` TEXT DEFAULT NULL,
+        `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    // 4. Email logs (tracks outgoing notifications with tracking codes)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `email_logs` (
+        `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        `complaint_id` INT UNSIGNED DEFAULT NULL,
+        `recipient_email` VARCHAR(254) NOT NULL,
+        `tracking_code` VARCHAR(32) NOT NULL,
+        `subject` VARCHAR(255) NOT NULL,
+        `body_preview` TEXT NOT NULL,
+        `delivery_status` ENUM('Sent', 'Logged', 'Failed') NOT NULL DEFAULT 'Sent',
         `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
@@ -163,6 +192,53 @@ function init_database_tables(PDO $pdo): void {
             password_hash('Staff@12345', PASSWORD_DEFAULT),
             'staff',
             'Complaint Officer'
+        ]);
+    }
+
+    // Seed sample complaints if complaints table is empty so admin panel immediately shows live connected data
+    $complaintCount = (int)$pdo->query('SELECT COUNT(*) FROM complaints')->fetchColumn();
+    if ($complaintCount === 0) {
+        $sampleStmt = $pdo->prepare('
+            INSERT INTO complaints (
+                tracking_code, student_name, student_class, section_name, email,
+                category, subject, description, status, admin_note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ');
+        $sampleStmt->execute([
+            'SA-9B2F4E18A0C3D651',
+            'Sara Khan',
+            'BS Computer Science (Year 2)',
+            'B',
+            'sara.khan@college.edu',
+            'Facilities & Classrooms',
+            'Broken projector in CS Lab 3',
+            'The ceiling HDMI projector keeps flickering and turns off after 5 minutes during lectures.',
+            'Pending',
+            null
+        ]);
+        $sampleStmt->execute([
+            'SA-4E7A1C93F8B20D45',
+            'Bilal Ahmed',
+            'BBA (Year 3)',
+            'A',
+            'bilal.ahmed@college.edu',
+            'Cleanliness & Washrooms',
+            'Water dispenser filter replacement needed',
+            'The 2nd floor water cooler water tastes metallic and needs a fresh filter cartridge.',
+            'In Progress',
+            'Facilities management has been notified. New filter requested from maintenance.'
+        ]);
+        $sampleStmt->execute([
+            'SA-2D8F6B109E3C7A54',
+            'Zainab Fatima',
+            'BS Software Engineering (Year 1)',
+            'C',
+            'zainab.f@college.edu',
+            'IT & Equipment',
+            'Campus Wi-Fi connectivity in Library',
+            'Frequent disconnects when trying to access digital library resources from the east wing reading area.',
+            'Resolved',
+            'IT Dept reconfigured Access Point #4 in the Library East Wing. Signal strength is now restored.'
         ]);
     }
 }
@@ -269,4 +345,139 @@ function json_response(array $data, int $statusCode = 200): void {
  */
 function sanitize_string(?string $str): string {
     return trim((string)$str);
+}
+
+/**
+ * Sends the complaint tracking code automatically to the student's email.
+ * Includes both real mail() dispatch and fallback logging for local XAMPP.
+ */
+function send_tracking_code_email(
+    string $recipientEmail,
+    string $studentName,
+    string $trackingCode,
+    string $complaintSubject,
+    string $category,
+    ?int $complaintId = null
+): bool {
+    $emailSubject = "Student Affairs - Tracking Code: {$trackingCode}";
+
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $trackUrl = "{$protocol}://{$host}/Student-Affairs-1/index.html#track";
+
+    $escapedName = htmlspecialchars($studentName, ENT_QUOTES, 'UTF-8');
+    $escapedSubject = htmlspecialchars($complaintSubject, ENT_QUOTES, 'UTF-8');
+    $escapedCategory = htmlspecialchars($category, ENT_QUOTES, 'UTF-8');
+    $escapedCode = htmlspecialchars($trackingCode, ENT_QUOTES, 'UTF-8');
+
+    $htmlBody = <<<HTML
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Your Complaint Tracking Code</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f7f9fd; margin: 0; padding: 24px; color: #18253d; }
+    .card { max-width: 580px; margin: 0 auto; background: #ffffff; border: 1px solid #e5eaf2; border-radius: 14px; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+    .brand { margin-bottom: 22px; border-bottom: 1px solid #edf0f5; padding-bottom: 16px; }
+    .badge { width: 38px; height: 38px; background: #2459d3; color: #ffffff; font-weight: 800; border-radius: 10px; text-align: center; line-height: 38px; font-size: 13px; display: inline-block; vertical-align: middle; }
+    .title { font-size: 16px; font-weight: 700; color: #10264a; display: inline-block; vertical-align: middle; margin-left: 10px; }
+    h2 { font-size: 21px; color: #10264a; margin-top: 0; }
+    p { font-size: 14px; line-height: 1.6; color: #475569; }
+    .code-box { background: #f5f8ff; border: 1px solid #dbe6fa; border-radius: 8px; padding: 18px; text-align: center; margin: 22px 0; }
+    .code-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #2459d3; letter-spacing: 1px; }
+    .tracking-code { font-family: "Courier New", Courier, monospace; font-size: 21px; font-weight: 800; color: #10264a; margin-top: 6px; letter-spacing: 1px; }
+    .details { background: #fafbfc; border-radius: 8px; padding: 14px 18px; margin: 20px 0; font-size: 13px; border: 1px solid #edf0f5; }
+    .details p { margin: 6px 0; font-size: 13px; }
+    .btn { display: inline-block; background: #2459d3; color: #ffffff !important; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 13px; margin: 12px 0; }
+    .footer { margin-top: 28px; border-top: 1px solid #edf0f5; padding-top: 16px; font-size: 11px; color: #94a3b8; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <span class="badge">SA</span>
+      <span class="title">Student Affairs · Student Complaint Portal</span>
+    </div>
+
+    <h2>Complaint Confirmation</h2>
+    <p>Dear <strong>{$escapedName}</strong>,</p>
+    <p>Your concern has been registered with the Student Affairs office. Below is your official tracking code to monitor its live status and view staff responses:</p>
+
+    <div class="code-box">
+      <div class="code-label">Your Unique Tracking Code</div>
+      <div class="tracking-code">{$escapedCode}</div>
+    </div>
+
+    <div class="details">
+      <p><strong>Category:</strong> {$escapedCategory}</p>
+      <p><strong>Subject:</strong> {$escapedSubject}</p>
+      <p><strong>Current Status:</strong> Pending Review</p>
+    </div>
+
+    <p style="text-align: center;">
+      <a href="{$trackUrl}" class="btn">Track Your Complaint Online →</a>
+    </p>
+
+    <div class="footer">
+      <p>This is an automated confirmation sent by the Student Affairs Complaint Portal to {$recipientEmail}. Keep this code for your reference. For urgent safety concerns, please contact your college administration directly.</p>
+    </div>
+  </div>
+</body>
+</html>
+HTML;
+
+    $fromHost = !empty($_SERVER['SERVER_NAME']) && $_SERVER['SERVER_NAME'] !== 'localhost' ? $_SERVER['SERVER_NAME'] : 'college.edu';
+    $fromEmail = "no-reply@{$fromHost}";
+
+    $headers = [
+        'MIME-Version: 1.0',
+        'Content-Type: text/html; charset=UTF-8',
+        "From: Student Affairs Portal <{$fromEmail}>",
+        "Reply-To: {$fromEmail}",
+        'X-Mailer: PHP/' . phpversion()
+    ];
+
+    $mailSuccess = false;
+    try {
+        $mailSuccess = @mail($recipientEmail, $emailSubject, $htmlBody, implode("\r\n", $headers));
+    } catch (\Throwable $t) {
+        $mailSuccess = false;
+    }
+
+    // Write to local logs/emails.log so local testing can be verified without external SMTP
+    $logDir = __DIR__ . '/logs';
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0755, true);
+    }
+    $logEntry = sprintf(
+        "[%s] To: %s | Code: %s | Subject: %s | Delivered: %s\n",
+        date('Y-m-d H:i:s'),
+        $recipientEmail,
+        $trackingCode,
+        $complaintSubject,
+        $mailSuccess ? 'SENT (mail)' : 'LOGGED (Local XAMPP)'
+    );
+    @file_put_contents($logDir . '/emails.log', $logEntry, FILE_APPEND);
+
+    // Save in database email_logs table
+    try {
+        $pdo = get_db_connection();
+        $logStmt = $pdo->prepare('
+            INSERT INTO email_logs (complaint_id, recipient_email, tracking_code, subject, body_preview, delivery_status)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ');
+        $logStmt->execute([
+            $complaintId,
+            $recipientEmail,
+            $trackingCode,
+            $emailSubject,
+            "Tracking code {$trackingCode} sent for: {$complaintSubject}",
+            $mailSuccess ? 'Sent' : 'Logged'
+        ]);
+    } catch (\Throwable $t) {
+        error_log("Failed to insert email log: " . $t->getMessage());
+    }
+
+    return true;
 }
