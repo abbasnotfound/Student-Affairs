@@ -26,11 +26,11 @@ define('MAIL_FROM_EMAIL', 'studentaffairsccs@gmail.com');  // Set your sender em
 define('MAIL_FROM_NAME',  'Student Affairs Portal');      // Set your sender display name here
 
 // To send REAL live emails to inboxes (e.g. via Gmail, Outlook, or SMTP server):
-define('SMTP_ENABLED',    false);                         // Change to true to enable real SMTP delivery
+define('SMTP_ENABLED',    true);                         // Change to true to enable real SMTP delivery
 define('SMTP_HOST',       'smtp.gmail.com');              // SMTP server (e.g. smtp.gmail.com)
 define('SMTP_PORT',       587);                           // SMTP port: 587 (TLS) or 465 (SSL)
 define('SMTP_ENCRYPTION', 'tls');                         // 'tls' or 'ssl'
-define('SMTP_USER',       'studentaffairsccs@gmail.com');        // Your email address
+define('SMTP_USER',       'studentaffairsccs@gmail.com');        // studentaffairscss@gmail.com
 define('SMTP_PASS',       'your-16-char-app-password');   // For Gmail: 16-character Google App Password
 
 /**
