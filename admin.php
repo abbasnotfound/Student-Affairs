@@ -31,7 +31,7 @@ $notice = '';
 $noticeType = 'success';
 
 // Handle Login Submission
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['login'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $loginError = 'Invalid security token. Please refresh the page and try again.';
     } else {
@@ -138,7 +138,7 @@ $currentUser = current_user();
 $isAdmin = ($currentUser['role'] === 'admin');
 
 // A. Handle Complaint Status Update
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['update_complaint'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_complaint'])) {
     if (!verify_csrf_token($_POST['csrf_token'] ?? '')) {
         $notice = 'Security verification failed. Please try again.';
         $noticeType = 'error';
@@ -192,7 +192,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['update_com
 }
 
 // B. Handle New Staff Account Creation (Admins only)
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && isset($_POST['create_staff'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_staff'])) {
     if (!$isAdmin) {
         $notice = 'Only administrators can create staff accounts.';
         $noticeType = 'error';
