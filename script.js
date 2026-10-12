@@ -68,6 +68,70 @@ function showDetails(element, details) {
 }
 
 // =============================================================================
+// WING + CLASS: show only sections that match the selected wing and class
+// =============================================================================
+const wingSelect = document.querySelector('select[name="wing"]');
+const classSelect = document.querySelector('select[name="studentId"]');
+const sectionField = document.querySelector("#section-field");
+
+if (wingSelect && classSelect && sectionField) {
+  const originalSectionInput = sectionField.querySelector('input[name="section"]');
+  const sectionsByWingAndClass = {
+    "Girls Wing": {
+      "9th": ["Unity", "Faith", "Discipline"],
+      "10th": ["Wisdom", "Courage", "Excellence"],
+      "11th": ["Amina", "Ayesha", "Fatima", "Hajra"],
+      "12th": ["Hafsa", "Khadija", "Maryam", "Zainab"]
+    },
+    "Boys Wing": {
+      "9th": ["Shaheen", "Scholars", "Explorers", "Guardians"],
+      "10th": ["Leaders", "Dedicated", "Challenger", "Champion"],
+      "11th": ["Rafique", "Faiz Ahmad Faiz", "Aziz Bhatti", "Rashid Minhas", "Kernal Sher Khan"],
+      "12th": ["Bahoo", "Ghazi-Ilm-Din", "Sir Syed", "Iqbal", "Jinnah"]
+    }
+  };
+
+  function updateSectionField() {
+    const sections = (sectionsByWingAndClass[wingSelect.value] || {})[classSelect.value] || [];
+    let sectionSelect = sectionField.querySelector('select[name="section"]');
+
+    // Keep Section as a dropdown for both wings so the available options are controlled.
+    if (!sectionSelect) {
+      sectionSelect = document.createElement("select");
+      sectionSelect.name = "section";
+      sectionSelect.required = true;
+      sectionSelect.setAttribute("aria-label", "Section");
+      const currentInput = sectionField.querySelector('input[name="section"]');
+      if (currentInput) currentInput.replaceWith(sectionSelect);
+    }
+
+    sectionSelect.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    placeholder.textContent = !wingSelect.value
+      ? "Select a wing first"
+      : !classSelect.value
+        ? "Select a class first"
+        : "Select a section";
+    sectionSelect.appendChild(placeholder);
+
+    sections.forEach((section) => {
+      const option = document.createElement("option");
+      option.value = section;
+      option.textContent = section;
+      sectionSelect.appendChild(option);
+    });
+    sectionSelect.disabled = sections.length === 0;
+  }
+
+  wingSelect.addEventListener("change", updateSectionField);
+  classSelect.addEventListener("change", updateSectionField);
+  updateSectionField();
+}
+
+// =============================================================================
 // 1. SUBMIT COMPLAINT FORM
 // =============================================================================
 const complaintForm = document.querySelector("#complaint-form");
