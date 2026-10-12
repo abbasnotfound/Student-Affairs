@@ -18,21 +18,6 @@ define('DB_USER', getenv('DB_USER') ?: 'root');
 define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');
 define('DB_NAME', getenv('DB_NAME') ?: 'student_affairs');
 
-// =====================================================================
-// SENDER EMAIL & SMTP CONFIGURATION
-// >>> studentaffairsccs@gmail.com <<<
-// =====================================================================
-define('MAIL_FROM_EMAIL', 'studentaffairsccs@gmail.com');  // Set your sender email address here
-define('MAIL_FROM_NAME',  'Student Affairs Portal');      // Set your sender display name here
-
-// To send REAL live emails to inboxes (e.g. via Gmail, Outlook, or SMTP server):
-define('SMTP_ENABLED',    true);                         // Change to true to enable real SMTP delivery
-define('SMTP_HOST',       'smtp.gmail.com');              // SMTP server (e.g. smtp.gmail.com)
-define('SMTP_PORT',       587);                           // SMTP port: 587 (TLS) or 465 (SSL)
-define('SMTP_ENCRYPTION', 'tls');                         // 'tls' or 'ssl'
-define('SMTP_USER',       'studentaffairsccs@gmail.com');        // studentaffairscss@gmail.com
-define('SMTP_PASS',       'your-16-char-app-password');   // For Gmail: 16-character Google App Password
-
 /**
  * Get or create the shared PDO database connection.
  */
@@ -165,6 +150,13 @@ function init_database_tables(PDO $pdo): void {
         `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+    // 5. System settings (dynamic Gmail and portal configuration)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `system_settings` (
+        `setting_key` VARCHAR(64) PRIMARY KEY,
+        `setting_value` TEXT NOT NULL,
+        `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
     // Seed default admin if missing or update role to admin
     $check = $pdo->prepare('SELECT id, role FROM admins WHERE username = ? LIMIT 1');
     $check->execute(['admin']);
@@ -248,19 +240,21 @@ function init_database_tables(PDO $pdo): void {
  */
 function start_secure_session(): void {
     if (session_status() === PHP_SESSION_NONE) {
-        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
-        
-        session_set_cookie_params([
-            'lifetime' => 86400 * 2, // 2 days
-            'path' => '/',
-            'domain' => '',
-            'secure' => $isHttps,
-            'httponly' => true,
-            'samesite' => 'Lax'
-        ]);
+        if (!headers_sent()) {
+            $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
+            
+            session_set_cookie_params([
+                'lifetime' => 86400 * 2, // 2 days
+                'path' => '/',
+                'domain' => '',
+                'secure' => $isHttps,
+                'httponly' => true,
+                'samesite' => 'Lax'
+            ]);
 
-        ini_set('session.use_strict_mode', '1');
-        session_start();
+            ini_set('session.use_strict_mode', '1');
+        }
+        @session_start();
     }
 }
 
@@ -348,6 +342,35 @@ function sanitize_string(?string $str): string {
 }
 
 /**
+ * Retrieve a system setting from the database, or return fallback.
+ */
+function get_system_setting(string $key, ?string $default = null): ?string {
+    try {
+        $pdo = get_db_connection();
+        $stmt = $pdo->prepare('SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1');
+        $stmt->execute([$key]);
+        $row = $stmt->fetch();
+        return ($row !== false && $row['setting_value'] !== null) ? (string)$row['setting_value'] : $default;
+    } catch (\Throwable $e) {
+        return $default;
+    }
+}
+
+/**
+ * Persist or update a system setting in the database.
+ */
+function set_system_setting(string $key, string $value): void {
+    $pdo = get_db_connection();
+    $stmt = $pdo->prepare('
+        INSERT INTO system_settings (setting_key, setting_value)
+        VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+    ');
+    $stmt->execute([$key, $value]);
+}
+
+
+/**
  * Sends the complaint tracking code automatically to the student's email.
  * Includes both real mail() dispatch and fallback logging for local XAMPP.
  */
@@ -427,8 +450,9 @@ function send_tracking_code_email(
 </html>
 HTML;
 
-    $fromEmail = defined('MAIL_FROM_EMAIL') ? MAIL_FROM_EMAIL : ('no-reply@' . ($_SERVER['SERVER_NAME'] ?? 'college.edu'));
-    $fromName = defined('MAIL_FROM_NAME') ? MAIL_FROM_NAME : 'Student Affairs Portal';
+    $cfg = get_active_email_config();
+    $fromEmail = $cfg['from_email'];
+    $fromName  = $cfg['from_name'];
 
     $headers = [
         'MIME-Version: 1.0',
@@ -440,10 +464,11 @@ HTML;
 
     $mailSuccess = false;
     $methodUsed = 'mail()';
+    $smtpErr = '';
 
-    if (defined('SMTP_ENABLED') && SMTP_ENABLED === true) {
-        $mailSuccess = send_smtp_socket_email($recipientEmail, $emailSubject, $htmlBody);
-        $methodUsed = 'SMTP (' . SMTP_HOST . ')';
+    if ($cfg['enabled'] && !empty($cfg['user']) && !empty($cfg['pass'])) {
+        $mailSuccess = send_smtp_socket_email($recipientEmail, $emailSubject, $htmlBody, $cfg, $smtpErr);
+        $methodUsed = 'Gmail SMTP (' . $cfg['host'] . ')';
     } else {
         try {
             $mailSuccess = @mail($recipientEmail, $emailSubject, $htmlBody, implode("\r\n", $headers));
@@ -495,29 +520,50 @@ HTML;
 /**
  * Direct lightweight SMTP mailer for Gmail, Outlook, or standard SMTP relays.
  */
-function send_smtp_socket_email(string $to, string $subject, string $htmlBody): bool {
-    $host = SMTP_HOST;
-    $port = (int)SMTP_PORT;
-    $user = SMTP_USER;
-    $pass = SMTP_PASS;
-    $encryption = strtolower(SMTP_ENCRYPTION);
+function send_smtp_socket_email(
+    string $to,
+    string $subject,
+    string $htmlBody,
+    ?array $overrideConfig = null,
+    ?string &$errorOutput = null
+): bool {
+    $cfg = $overrideConfig ?? get_active_email_config();
+    $host = !empty($cfg['host']) ? $cfg['host'] : 'smtp.gmail.com';
+    $port = !empty($cfg['port']) ? (int)$cfg['port'] : 587;
+    $user = trim((string)($cfg['user'] ?? ''));
+    $pass = str_replace(' ', '', (string)($cfg['pass'] ?? ''));
+    $encryption = strtolower((string)($cfg['encryption'] ?? 'tls'));
+    $fromEmail = !empty($cfg['from_email']) ? $cfg['from_email'] : ($user ?: 'studentaffairsccs@gmail.com');
+    $fromName = !empty($cfg['from_name']) ? $cfg['from_name'] : 'Student Affairs Portal';
 
     $remoteHost = ($encryption === 'ssl') ? "ssl://{$host}" : "tcp://{$host}";
-    $socket = @stream_socket_client("{$remoteHost}:{$port}", $errno, $errstr, 15, STREAM_CLIENT_CONNECT);
+    $context = stream_context_create([
+        'ssl' => [
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+            'allow_self_signed' => true
+        ]
+    ]);
+
+    $socket = @stream_socket_client("{$remoteHost}:{$port}", $errno, $errstr, 15, STREAM_CLIENT_CONNECT, $context);
     if (!$socket) {
-        error_log("SMTP connection failed: {$errstr} ({$errno})");
+        $errorOutput = "Connection failed to {$remoteHost}:{$port} - {$errstr} ({$errno})";
+        error_log("SMTP Error: " . $errorOutput);
         return false;
     }
+
+    stream_set_timeout($socket, 15);
 
     $read = function() use ($socket): string {
         $data = '';
         while (!feof($socket)) {
-            $line = fgets($socket, 515);
+            $line = fgets($socket, 1024);
             if ($line === false) break;
             $data .= $line;
-            if (isset($line[3]) && $line[3] === ' ') break;
+            if (strlen($line) >= 4 && $line[3] === ' ') break;
+            if (strlen(rtrim($line)) === 3) break;
         }
-        return $data;
+        return trim($data);
     };
 
     $write = function(string $cmd) use ($socket): void {
@@ -526,6 +572,7 @@ function send_smtp_socket_email(string $to, string $subject, string $htmlBody): 
 
     $response = $read();
     if (!str_starts_with($response, '220')) {
+        $errorOutput = "SMTP server banner greeting rejected: {$response}";
         fclose($socket);
         return false;
     }
@@ -538,13 +585,25 @@ function send_smtp_socket_email(string $to, string $subject, string $htmlBody): 
         $write("STARTTLS");
         $response = $read();
         if (!str_starts_with($response, '220')) {
+            $errorOutput = "STARTTLS initiation rejected: {$response}";
             fclose($socket);
             return false;
         }
-        if (!@stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
+
+        $cryptoMethod = STREAM_CRYPTO_METHOD_TLS_CLIENT;
+        if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
+            $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
+        }
+        if (defined('STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT')) {
+            $cryptoMethod |= STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT;
+        }
+
+        if (!@stream_socket_enable_crypto($socket, true, $cryptoMethod)) {
+            $errorOutput = "TLS crypto handshake failed with {$host}:{$port}";
             fclose($socket);
             return false;
         }
+
         $write("EHLO {$clientName}");
         $response = $read();
     }
@@ -552,33 +611,66 @@ function send_smtp_socket_email(string $to, string $subject, string $htmlBody): 
     if (!empty($user) && !empty($pass)) {
         $write("AUTH LOGIN");
         $response = $read();
+        if (!str_starts_with($response, '334')) {
+            $errorOutput = "AUTH LOGIN rejected: {$response}";
+            fclose($socket);
+            return false;
+        }
+
         $write(base64_encode($user));
         $response = $read();
+        if (!str_starts_with($response, '334')) {
+            $errorOutput = "SMTP user rejected: {$response}";
+            fclose($socket);
+            return false;
+        }
+
         $write(base64_encode($pass));
         $response = $read();
         if (!str_starts_with($response, '235')) {
-            error_log("SMTP authentication failed: {$response}");
+            if (str_contains($response, '535')) {
+                $errorOutput = "Authentication failed (535). If using Gmail, you MUST use a 16-character Google 'App Password' (generated under your Google Account Security settings), not your personal account password. Server response: {$response}";
+            } else {
+                $errorOutput = "SMTP authentication failed: {$response}";
+            }
+            error_log("SMTP Error: " . $errorOutput);
             fclose($socket);
             return false;
         }
     }
 
-    $fromEmail = MAIL_FROM_EMAIL ?: $user;
     $write("MAIL FROM:<{$fromEmail}>");
-    $read();
+    $response = $read();
+    if (!str_starts_with($response, '250')) {
+        $errorOutput = "MAIL FROM command rejected: {$response}";
+        fclose($socket);
+        return false;
+    }
+
     $write("RCPT TO:<{$to}>");
-    $read();
+    $response = $read();
+    if (!str_starts_with($response, '250') && !str_starts_with($response, '251')) {
+        $errorOutput = "RCPT TO <{$to}> rejected: {$response}";
+        fclose($socket);
+        return false;
+    }
+
     $write("DATA");
-    $read();
+    $response = $read();
+    if (!str_starts_with($response, '354')) {
+        $errorOutput = "DATA initiation failed: {$response}";
+        fclose($socket);
+        return false;
+    }
 
     $headers = [
-        "From: " . MAIL_FROM_NAME . " <{$fromEmail}>",
+        "From: =?UTF-8?B?" . base64_encode($fromName) . "?= <{$fromEmail}>",
         "To: <{$to}>",
         "Subject: =?UTF-8?B?" . base64_encode($subject) . "?=",
+        "Date: " . date('r'),
         "MIME-Version: 1.0",
         "Content-Type: text/html; charset=UTF-8",
         "Content-Transfer-Encoding: 8bit",
-        "Date: " . date('r'),
         "Message-ID: <" . bin2hex(random_bytes(16)) . "@{$host}>"
     ];
 
@@ -589,5 +681,12 @@ function send_smtp_socket_email(string $to, string $subject, string $htmlBody): 
     $write("QUIT");
     fclose($socket);
 
-    return str_starts_with($response, '250');
+    if (!str_starts_with($response, '250')) {
+        $errorOutput = "Final message dispatch rejected: {$response}";
+        return false;
+    }
+
+    return true;
 }
+
+

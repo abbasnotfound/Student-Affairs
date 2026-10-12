@@ -126,18 +126,11 @@ if (complaintForm && formMessage) {
       successHeading.style.display = "block";
       successHeading.textContent = "✓ Complaint Submitted Successfully!";
 
-      const targetEmail = String(result.recipient_email || formData.get("email") || "");
       const explanation = document.createElement("p");
       explanation.style.margin = "8px 0 10px";
       explanation.style.fontSize = "13px";
       explanation.style.color = "#2c4033";
-      const strongEmail = document.createElement("strong");
-      strongEmail.textContent = targetEmail;
-      explanation.append(
-        document.createTextNode("Your submission has been recorded and your tracking code has been automatically sent to "),
-        strongEmail,
-        document.createTextNode(". You can also save your tracking code below to check progress anytime:")
-      );
+      explanation.textContent = "Your complaint has been registered with Student Affairs. Please copy and save your unique tracking code below to check your status:";
 
       const code = document.createElement("div");
       code.className = "tracking-code-display";

@@ -147,22 +147,10 @@ try {
 
     $pdo->commit();
 
-    // Automatically send tracking code to the student's email
-    send_tracking_code_email(
-        $email,
-        $name,
-        $trackingCode,
-        $subject,
-        $category,
-        $complaintId
-    );
-
     json_response([
         'success' => true,
-        'message' => 'Complaint submitted successfully! Your tracking code has been automatically sent to ' . $email . '.',
+        'message' => 'Complaint submitted successfully! Please save your tracking code below to monitor progress.',
         'tracking_code' => $trackingCode,
-        'email_sent' => true,
-        'recipient_email' => $email,
         'data' => [
             'tracking_code' => $trackingCode,
             'subject' => $subject,
